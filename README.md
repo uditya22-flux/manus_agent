@@ -121,7 +121,24 @@ python -m visualization.plot_results results/benchmark_summary.csv --output-dir 
 streamlit run visualization/app.py
 ```
 
-The dashboard lets you choose a recovery strategy, seed, node count, policy-update toggle, and HITL approval probability; explicitly press **Run workflow** to start a fresh trial. It displays the step trace, preflight/commit envelopes, node topology and pending policy deliveries, metrics, and the saved Monte Carlo comparison. Widget rerenders do not rerun the simulation.
+The dashboard lets you choose a recovery strategy, seed, node count, policy-update toggle, and HITL approval probability; explicitly press **Run workflow** to start a fresh trial. It displays the step trace, preflight/commit envelopes, node topology and pending policy deliveries, metrics, and the saved Monte Carlo comparison. Widget rerenders do not rerun the simulation. The dashboard also resolves the repository root from its own file path, so its `core`, `evaluation`, and `simulation` imports work when launched with an absolute script path.
+
+### Windows PowerShell
+
+Open PowerShell and change into the folder that contains `core`, `evaluation`, `simulation`, and `visualization` (the `agentbridge` folder), quoting the path if it contains spaces:
+
+```powershell
+cd "C:\path\to\agentbridge"
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+pytest tests/ -v
+python -m evaluation.run_benchmarks --trials 100 --seed 20261108 --output-dir results
+python -m visualization.plot_results results/benchmark_summary.csv --output-dir results
+python -m streamlit run visualization/app.py
+```
+
+When launching the dashboard from a different working directory, pass the quoted full path to `visualization\app.py`; the app bootstraps the repository root before importing the project modules. The benchmark and plot module commands should be run from the repository root.
 
 ## Model and operational notes
 

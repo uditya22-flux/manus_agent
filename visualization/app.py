@@ -1,11 +1,17 @@
 """Interactive AgentBridge workflow and benchmark dashboard.
 
-Launch from the repository root with: streamlit run visualization/app.py
+Launch with: python -m streamlit run visualization/app.py
+The project root is added to the import path automatically.
 """
 from __future__ import annotations
 
 import json
 from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 import pandas as pd
 import streamlit as st
@@ -15,7 +21,6 @@ from evaluation.metrics import summarize_results
 from simulation.environment import SimulationConfig, run_simulation
 
 
-ROOT = Path(__file__).resolve().parents[1]
 STRATEGY_LABELS = {
     "FAIL_CLOSED": "Fail-Closed · stop on drift",
     "FAIL_OPEN": "Fail-Open · pin legacy policy",
