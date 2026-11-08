@@ -84,7 +84,8 @@ agentbridge/
 ├── simulation/
 │   ├── network.py             # Priority-queue delivery and 10 edge nodes
 │   ├── agent.py               # Session passport, plan state, mock endpoint commits
-│   └── environment.py         # Virtual-time orchestration and simulation results
+│   ├── environment.py         # Virtual-time orchestration and simulation results
+│   └── mission_control.py     # Demo fleet, canary queue, shadow replay, HITL decisions
 ├── evaluation/
 │   ├── scenarios.py           # $1,000 → $650 corporate travel scenario
 │   ├── metrics.py             # TCR/GVR/spend/latency aggregation
@@ -92,7 +93,7 @@ agentbridge/
 ├── visualization/
 │   ├── plot_results.py        # CSV-driven PNG/PDF Pareto chart
 │   └── app.py                 # Interactive Streamlit workflow dashboard
-├── tests/                     # Policy, conflict, recovery, and end-to-end acceptance tests
+├── tests/                     # Policy, conflict, recovery, mission-control, and end-to-end tests
 ├── results/                   # Generated benchmark CSVs and figures
 ├── requirements.txt
 └── README.md
@@ -118,10 +119,23 @@ python -m evaluation.run_benchmarks --trials 100 --seed 20261108 --output-dir re
 python -m visualization.plot_results results/benchmark_summary.csv --output-dir results
 
 # Launch the interactive dashboard
-streamlit run visualization/app.py
+python -m streamlit run visualization/app.py
 ```
 
-The dashboard lets you choose a recovery strategy, seed, node count, policy-update toggle, and HITL approval probability; explicitly press **Run workflow** to start a fresh trial. It displays the step trace, preflight/commit envelopes, node topology and pending policy deliveries, metrics, and the saved Monte Carlo comparison. Widget rerenders do not rerun the simulation. The dashboard also resolves the repository root from its own file path, so its `core`, `evaluation`, and `simulation` imports work when launched with an absolute script path.
+The dashboard is organized into six mission-control areas: **Overview & Fleet Health**, **Live Agent Fleet**, **Execution Inspector**, **Policy Control Center**, **Quarantine & HITL**, and **Observability & Benchmarks**. The sidebar selects the simulated environment and recovery strategy and lets you explicitly run the five-step workflow; widget rerenders do not rerun it. The app bootstraps the repository root from its own file path, so its `core`, `evaluation`, and `simulation` imports also work when launched with an absolute script path.
+
+### Mission-control coverage and data boundary
+
+| Requested area | Implemented behavior |
+| --- | --- |
+| Overview and fleet health | Online/idle/halted counters, active policy adoption by edge node, divergence incidents, attention banner, aggregate token budget gauge, and fleet topology. |
+| Fleet matrix | Agent/session/domain/status/version/consistency/taint columns, raw passport viewer, and in-memory Pause, Force Update, and Terminate actions. Updating a node does not rewrite the session's initial passport; any resulting in-flight mismatch remains visible. |
+| Trace inspector | Step timeline, reversible/irreversible classification, proposed arguments, verdict, mock tool output, passport JSON, preflight/commit envelopes, digest validation, and rule violations. It shows concise operational plan notes, not hidden chain-of-thought. |
+| Policy center | Rule builder with target-tool and parameter constraints, version diff, canary percentage, queued Gaussian-delay policy deliveries, manual virtual-time advance, rollout progress, and 500-session shadow replay. Canary and full-rollout controls stay disabled until a 500-session replay exists for the exact draft hash. |
+| Quarantine and HITL | Escalation cards with one-time override, aggregate-budget compensation, and abort/freeze actions. Previously committed spend is never erased; an impossible retroactive correction is shown as residual excess. |
+| Observability | TCR-versus-GVR chart, generated compliance Pareto figure, recovery/interceptor latency, propagation-delay histogram, and token-economy estimate. |
+
+Mission Control is a deterministic demo console, not a connection to a real company fleet. Fleet records, incidents, audit entries, HITL items, and the 500-session replay archive are synthetic and session-local; canary controls advance a virtual clock. Prompt-to-policy history is illustrative (there is no LLM compiler call), and token savings are modeled estimates (model tokens are not instrumented). The UI stays in the repository's existing Streamlit/Python stack; the attached Next.js/Vite component hierarchy was treated as a suggested layout, not a required frontend migration.
 
 ### Windows PowerShell
 

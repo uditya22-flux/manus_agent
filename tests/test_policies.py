@@ -61,3 +61,13 @@ def test_envelope_signature_verifies_serialized_policy_context():
     envelope = GovernanceEnvelope(node_id="node_01", evaluated_policy_version=policy.version, evaluated_policy_hash=policy.policy_hash, passport=passport, proposed_action=Action(step_id=1, tool_name="lookup", action_type=ActionType.REVERSIBLE))
     assert envelope.verify_signature()
     assert envelope.model_dump(mode="json")["proposed_action"]["action_type"] == "REVERSIBLE"
+
+
+def test_envelope_signature_survives_json_round_trip():
+    policy = make_policy()
+    passport = ContextPassport(agent_id="agent", user_role="finance", initial_policy_version=policy.version, initial_policy_hash=policy.policy_hash)
+    action = Action(step_id=2, tool_name="payment", arguments={"cost": Decimal("12.34")}, action_type=ActionType.IRREVERSIBLE)
+    envelope = GovernanceEnvelope(node_id="node_01", evaluated_policy_version=policy.version, evaluated_policy_hash=policy.policy_hash, passport=passport, proposed_action=action)
+    serialized = envelope.model_dump(mode="json")
+    restored = GovernanceEnvelope.model_validate(serialized)
+    assert restored.verify_signature()

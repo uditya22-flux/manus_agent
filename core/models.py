@@ -180,8 +180,8 @@ class GovernanceEnvelope(StrictModel):
             "timestamp": self.timestamp,
             "evaluated_policy_version": self.evaluated_policy_version,
             "evaluated_policy_hash": self.evaluated_policy_hash,
-            "passport": self.passport.model_dump(mode="python"),
-            "proposed_action": self.proposed_action.model_dump(mode="python"),
+            "passport": self.passport.model_dump(mode="json"),
+            "proposed_action": self.proposed_action.model_dump(mode="json"),
         }
 
     def compute_signature(self) -> str:
