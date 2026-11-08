@@ -1,0 +1,7 @@
+# Supported runtime: Python 3.11+
+pydantic>=2.7,<3
+pandas>=2.2,<4
+matplotlib>=3.8,<4
+seaborn>=0.13,<1
+streamlit>=1.35,<2
+pytest>=8,<9
