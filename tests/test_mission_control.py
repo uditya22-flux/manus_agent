@@ -23,10 +23,38 @@ def test_overview_and_fleet_expose_ten_node_adoption_and_passports():
     assert overview["divergence_incidents_24h"] == 2
     assert overview["stale_nodes"] == 1
     assert overview["policy_adoption"]["2.0.0"] == 90.0
+    assert overview["company_name"] == "Aster Finance"
     assert {row["consistency"] for row in rows}.issuperset({"STALE-NODE", "MID-FLIGHT-CONFLICT"})
     passport = mc.passport_for("FinOps-Worker-42")
-    assert passport["session_id"] == "sess_finops_worker_42"
+    assert passport["session_id"] == "sess_aster_finance_finops_worker_42"
+    assert passport["company"] == "Aster Finance"
     assert passport["taint_status"] == TaintStatus.TAINTED.value
+
+
+def test_company_scoped_agent_profiles_and_dynamic_agent_creation():
+    commerce = MissionControl(
+        company_name="Northstar Commerce",
+        industry="E-commerce",
+        description="A commerce demo fleet.",
+        agent_overrides={
+            "FinOps-Worker-42": {"agent_name": "Commerce Payments Agent 42", "domain": "Commerce Operations", "user_role": "payments_operator"},
+        },
+    )
+    profile = commerce.agent_profile("FinOps-Worker-42")
+    assert profile["company"]["name"] == "Northstar Commerce"
+    assert profile["identity"]["agent_name"] == "Commerce Payments Agent 42"
+    assert profile["identity"]["session_id"] == "sess_northstar_commerce_finops_worker_42"
+    assert profile["policy_provenance"]["cluster_head_version"] == "2.0.0"
+    assert profile["policy_provenance"]["consistency_status"] == "MID-FLIGHT-CONFLICT"
+    assert commerce.session_trace("FinOps-Worker-42")[0]["tool"] == "search_product_catalog"
+
+    agent_id = commerce.add_agent("Invoice Review Agent", "Procurement", "invoice_reviewer")
+    added = commerce.agent_profile(agent_id)
+    assert agent_id == "Invoice-Review-Agent"
+    assert added["identity"]["session_id"] == "sess_northstar_commerce_invoice_review_agent"
+    assert added["policy_provenance"]["consistency_status"] == "IN-SYNC"
+    assert added["passport"]["company"] == "Northstar Commerce"
+    assert next(row for row in commerce.fleet_records() if row["agent_id"] == agent_id)["company"] == "Northstar Commerce"
 
 
 def test_agent_controls_pause_force_update_and_terminate():

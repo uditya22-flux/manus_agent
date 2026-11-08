@@ -29,6 +29,62 @@ STRATEGY_LABELS = {
     "COMPENSATING": "Compensating · constrain future spend",
 }
 
+COMPANY_PRESETS = [
+    {"name": "Aster Finance", "industry": "Financial Services", "description": "Corporate finance, procurement, customer support, and reporting agents.", "seed": 20261108},
+    {"name": "Northstar Commerce", "industry": "E-commerce", "description": "Commerce payments, returns, catalog, and merchant-success agents.", "seed": 20261109},
+    {"name": "Helio Health Network", "industry": "Healthcare", "description": "Claims, patient support, clinical data, and care operations agents.", "seed": 20261110},
+]
+
+
+def agent_profiles_for(industry: str) -> dict[str, dict[str, str]]:
+    if industry == "E-commerce":
+        return {
+            "FinOps-Worker-42": {"agent_name": "Commerce Payments Agent 42", "domain": "Commerce Operations", "user_role": "payments_operator"},
+            "Support-Agent-07": {"agent_name": "Returns Support Agent 07", "domain": "Customer Support", "user_role": "returns_specialist"},
+            "Data-Pipeline-12": {"agent_name": "Catalog Pipeline Agent 12", "domain": "Internal BI", "user_role": "catalog_data_engineer"},
+            "Code-Review-03": {"agent_name": "Commerce Platform Reviewer 03", "domain": "Engineering", "user_role": "platform_reviewer"},
+            "Customer-Success-21": {"agent_name": "Merchant Success Agent 21", "domain": "Customer Support", "user_role": "merchant_success"},
+            "Internal-BI-04": {"agent_name": "Revenue Analytics Agent 04", "domain": "Internal BI", "user_role": "revenue_analyst"},
+        }
+    if industry == "Healthcare":
+        return {
+            "FinOps-Worker-42": {"agent_name": "Claims Operations Agent 42", "domain": "Clinical Operations", "user_role": "claims_operator"},
+            "Support-Agent-07": {"agent_name": "Patient Support Agent 07", "domain": "Patient Support", "user_role": "patient_support"},
+            "Data-Pipeline-12": {"agent_name": "Clinical Data Pipeline 12", "domain": "Clinical Data", "user_role": "clinical_data_engineer"},
+            "Code-Review-03": {"agent_name": "Clinical Systems Reviewer 03", "domain": "Engineering", "user_role": "clinical_software_reviewer"},
+            "Customer-Success-21": {"agent_name": "Care Coordination Agent 21", "domain": "Patient Support", "user_role": "care_coordinator"},
+            "Internal-BI-04": {"agent_name": "Quality Analytics Agent 04", "domain": "Clinical Data", "user_role": "quality_analyst"},
+        }
+    if industry == "Technology":
+        return {
+            "FinOps-Worker-42": {"agent_name": "Platform Reliability Agent 42", "domain": "Engineering", "user_role": "site_reliability_engineer"},
+            "Support-Agent-07": {"agent_name": "Developer Support Agent 07", "domain": "Customer Support", "user_role": "developer_support"},
+            "Data-Pipeline-12": {"agent_name": "Telemetry Pipeline Agent 12", "domain": "Internal BI", "user_role": "observability_engineer"},
+            "Code-Review-03": {"agent_name": "Secure Code Reviewer 03", "domain": "Engineering", "user_role": "security_reviewer"},
+            "Customer-Success-21": {"agent_name": "Developer Success Agent 21", "domain": "Customer Support", "user_role": "developer_success"},
+            "Internal-BI-04": {"agent_name": "Product Analytics Agent 04", "domain": "Internal BI", "user_role": "product_analyst"},
+        }
+    if industry == "Financial Services":
+        return {}
+    return {
+        "FinOps-Worker-42": {"agent_name": "Operations Agent 42", "domain": "Procurement", "user_role": "operations_agent"},
+        "Support-Agent-07": {"agent_name": "Service Agent 07", "domain": "Customer Support", "user_role": "service_agent"},
+        "Data-Pipeline-12": {"agent_name": "Data Pipeline Agent 12", "domain": "Internal BI", "user_role": "data_engineer"},
+        "Code-Review-03": {"agent_name": "Platform Reviewer 03", "domain": "Engineering", "user_role": "platform_reviewer"},
+        "Customer-Success-21": {"agent_name": "Customer Success Agent 21", "domain": "Customer Support", "user_role": "customer_success"},
+        "Internal-BI-04": {"agent_name": "Analytics Agent 04", "domain": "Internal BI", "user_role": "analyst"},
+    }
+
+
+def new_company_control(name: str, industry: str, description: str, seed: int) -> MissionControl:
+    return MissionControl(
+        seed=seed,
+        company_name=name,
+        industry=industry,
+        description=description,
+        agent_overrides=agent_profiles_for(industry),
+    )
+
 
 def money(value: Any) -> str:
     return f"${Decimal(str(value)):,.2f}"
@@ -59,23 +115,41 @@ def json_safe(value: Any) -> Any:
 
 
 st.set_page_config(page_title="AgentBridge Mission Control", page_icon="AB", layout="wide")
-if "mission_control" not in st.session_state:
-    st.session_state["mission_control"] = MissionControl()
-if "latest_simulation" not in st.session_state:
-    st.session_state["latest_simulation"] = run_simulation(RecoveryStrategy.COMPENSATING, seed=20261108)
-mc: MissionControl = st.session_state["mission_control"]
-latest: SimulationResult = st.session_state["latest_simulation"]
+if "company_fleets" not in st.session_state:
+    st.session_state["company_fleets"] = {
+        preset["name"]: new_company_control(preset["name"], preset["industry"], preset["description"], preset["seed"])
+        for preset in COMPANY_PRESETS
+    }
+if "latest_simulations" not in st.session_state:
+    st.session_state["latest_simulations"] = {}
+if "company_to_select_next" in st.session_state:
+    st.session_state["company_selector"] = st.session_state.pop("company_to_select_next")
+if "agent_to_select_next" in st.session_state:
+    company_for_agent, agent_for_selection = st.session_state.pop("agent_to_select_next")
+    company_control = st.session_state["company_fleets"].get(company_for_agent)
+    if company_control:
+        st.session_state[f"selected_agent::{company_control.company_slug}"] = agent_for_selection
 
 with st.sidebar:
     st.title("AgentBridge")
-    environment = st.selectbox("Environment", ["Staging · simulated", "Production · simulated"], index=0)
+    environment = st.selectbox("Environment", ["Staging · simulated", "Production · simulated"], index=0, key="environment_selector")
+    company_name = st.selectbox("Company", list(st.session_state["company_fleets"]), key="company_selector")
+    mc: MissionControl = st.session_state["company_fleets"][company_name]
+    agent_key = f"selected_agent::{mc.company_slug}"
+    selected_agent_id = st.selectbox(
+        "Selected agent",
+        list(mc.agents),
+        format_func=lambda item: f"{mc.agents[item].agent_name} · {item}",
+        key=agent_key,
+    )
+    st.caption("Choose a company, then an agent. Open **Company & Agent Profile** for its detailed view.")
     st.caption("No real agents, tools, customers, or approval systems are connected.")
     st.divider()
     st.subheader("Workflow replay")
     strategy_name = st.selectbox("Recovery strategy", list(STRATEGY_LABELS), format_func=lambda value: STRATEGY_LABELS[value])
     trial_seed = st.number_input("Seed", min_value=0, max_value=2_147_483_647, value=20261108, step=1)
     if st.button("Run 5-step scenario", type="primary", use_container_width=True):
-        st.session_state["latest_simulation"] = run_simulation(
+        st.session_state["latest_simulations"][company_name] = run_simulation(
             RecoveryStrategy(strategy_name),
             seed=int(trial_seed),
             config=SimulationConfig(),
@@ -84,8 +158,11 @@ with st.sidebar:
         st.rerun()
     st.caption("The replay uses a fresh agent passport, node cache, event queue, and seeded RNG.")
 
+if company_name not in st.session_state["latest_simulations"]:
+    st.session_state["latest_simulations"][company_name] = run_simulation(RecoveryStrategy.COMPENSATING, seed=mc.seed)
+latest: SimulationResult = st.session_state["latest_simulations"][company_name]
 st.title("AI Engineer Mission Control")
-st.caption(f"Company AI Governance Portal · {environment} · deterministic in-memory simulation")
+st.caption(f"{company_name} · {mc.industry} · {environment} · deterministic in-memory simulation")
 notice = st.session_state.pop("flash_notice", None)
 if notice:
     st.success(notice)
@@ -94,14 +171,105 @@ overview = mc.overview()
 if overview["attention_required"]:
     st.warning(f"Incident attention required: {overview['attention_required']} agent session(s) are in conflict or awaiting human review.")
 
-overview_tab, fleet_tab, inspector_tab, policy_tab, intervention_tab, observability_tab = st.tabs([
+company_profile_tab, overview_tab, fleet_tab, inspector_tab, policy_tab, intervention_tab, observability_tab, company_setup_tab = st.tabs([
+    "Company & Agent Profile",
     "Overview & Fleet Health",
     "Live Agent Fleet",
     "Execution Inspector",
     "Policy Control Center",
     "Quarantine & HITL",
     "Observability & Benchmarks",
+    "Company & Agent Setup",
 ])
+
+with company_profile_tab:
+    company_data = mc.overview()
+    st.subheader(company_data["company_name"])
+    st.caption(f"{company_data['industry']} · {company_data['company_description']}")
+    company_metrics = st.columns(5)
+    company_metrics[0].metric("Agents in this company", company_data["total_agents"])
+    company_metrics[1].metric("Online", company_data["online_agents"])
+    company_metrics[2].metric("Idle", company_data["idle_agents"])
+    company_metrics[3].metric("Halted", company_data["halted_agents"])
+    current_adoption = company_data["policy_adoption"].get(company_data["cluster_policy_version"], 0.0)
+    company_metrics[4].metric("Policy head / adoption", f"{company_data['cluster_policy_version']} · {current_adoption:.0f}%")
+
+    selected_profile = mc.agent_profile(selected_agent_id)
+    identity = selected_profile["identity"]
+    st.divider()
+    st.header(f"{identity['agent_name']}")
+    st.caption(f"Agent ID `{identity['agent_id']}` · Session `{identity['session_id']}` · Company `{selected_profile['company']['name']}`")
+    agent_metrics = st.columns(6)
+    agent_metrics[0].metric("Lifecycle status", selected_profile["lifecycle"]["status"])
+    agent_metrics[1].metric("Domain", identity["domain"])
+    agent_metrics[2].metric("User role", identity["user_role"])
+    agent_metrics[3].metric("Consistency", selected_profile["policy_provenance"]["consistency_status"])
+    agent_metrics[4].metric("Taint", selected_profile["lifecycle"]["taint_status"])
+    agent_metrics[5].metric("Execution node", identity["node_id"])
+
+    info_left, info_right = st.columns(2)
+    with info_left:
+        st.markdown("#### Identity and context passport")
+        st.json(selected_profile["passport"], expanded=True)
+        st.markdown("#### Taint and runtime state")
+        st.write(f"**Active step:** `{selected_profile['lifecycle']['active_step']}`")
+        st.write(f"**Taint reason:** {selected_profile['lifecycle']['taint_reason']}")
+        st.write(f"**Pending policy update:** {selected_profile['policy_provenance']['pending_update']}")
+    with info_right:
+        st.markdown("#### Policy provenance and version consistency")
+        st.json(selected_profile["policy_provenance"], expanded=True)
+        st.markdown("#### Related incidents")
+        if selected_profile["recent_incidents"]:
+            st.dataframe(pd.DataFrame(selected_profile["recent_incidents"]), hide_index=True)
+        else:
+            st.caption("No linked incident in the seeded demo log.")
+
+    st.markdown("#### This agent's execution timeline")
+    agent_trace = mc.session_trace(selected_agent_id)
+    committed_count = sum(item["executed"] for item in agent_trace)
+    st.progress(committed_count / len(agent_trace), text=f"{committed_count} of {len(agent_trace)} mock steps committed")
+    st.dataframe(pd.DataFrame(agent_trace)[["step_id", "tool", "action_type", "decision", "conflict_type", "executed"]], hide_index=True)
+    selected_step = st.select_slider(
+        "Open a step to inspect its action and governance envelope",
+        options=[item["step_id"] for item in agent_trace],
+        value=int(selected_profile["lifecycle"]["active_step"].rsplit("_", 1)[-1]),
+        key=f"profile_step::{mc.company_slug}::{selected_agent_id}",
+    )
+    selected_trace = next(item for item in agent_trace if item["step_id"] == selected_step)
+    trace_left, trace_right = st.columns(2)
+    with trace_left:
+        st.caption(f"Action classification: {selected_trace['action_type']}")
+        st.write(f"**Plan note:** {selected_trace['plan_note']}")
+        st.write(f"**Governance verdict:** `{selected_trace['decision']}`")
+        st.write(f"**Tool output:** {selected_trace['tool_output']}")
+        st.json(selected_trace["arguments"], expanded=True)
+        st.markdown("**Policy rule(s) tripped**")
+        st.json(selected_trace["policy_violations"] or {"result": "No rule violations reported."}, expanded=True)
+    with trace_right:
+        st.markdown("**Signed governance envelope**")
+        try:
+            profile_envelope = GovernanceEnvelope.model_validate(selected_trace["envelope"])
+            profile_signature_valid = profile_envelope.verify_signature()
+        except Exception as exc:
+            profile_signature_valid = False
+            st.error(f"Envelope validation failed: {exc}")
+        st.metric("SHA-256 integrity digest", "VALID" if profile_signature_valid else "INVALID")
+        st.json(selected_trace["envelope"], expanded=False)
+
+    st.markdown("#### Selected-agent controls")
+    profile_controls = st.columns(3)
+    if profile_controls[0].button("Pause this agent", key=f"profile_pause::{mc.company_slug}::{selected_agent_id}"):
+        mc.pause_agent(selected_agent_id)
+        st.session_state["flash_notice"] = f"Paused {identity['agent_name']}."
+        st.rerun()
+    if profile_controls[1].button("Force update its node", key=f"profile_update::{mc.company_slug}::{selected_agent_id}"):
+        mc.force_update_agent(selected_agent_id)
+        st.session_state["flash_notice"] = f"Updated the node cache for {identity['agent_name']}; passport provenance remains unchanged."
+        st.rerun()
+    if profile_controls[2].button("Terminate this thread", key=f"profile_terminate::{mc.company_slug}::{selected_agent_id}"):
+        mc.terminate_agent(selected_agent_id)
+        st.session_state["flash_notice"] = f"Terminated {identity['agent_name']}."
+        st.rerun()
 
 with overview_tab:
     st.subheader("Fleet health")
@@ -167,7 +335,7 @@ with fleet_tab:
     taint_colors = {"CLEAN": "background-color: #dcfce7; color: #166534", "TAINTED": "background-color: #fee2e2; color: #991b1b"}
     styled_fleet = fleet.style.map(lambda value: consistency_colors.get(value, ""), subset=["consistency"]).map(lambda value: taint_colors.get(value, ""), subset=["taint_status"])
     st.dataframe(styled_fleet, hide_index=True)
-    selected_agent_id = st.selectbox("Inspect or control agent", list(mc.agents), format_func=lambda item: f"{mc.agents[item].agent_name} · {item}")
+    st.caption(f"Selected in the sidebar: **{mc.agents[selected_agent_id].agent_name}** · open the Company & Agent Profile tab for the full session dossier.")
     control_columns = st.columns(3)
     if control_columns[0].button("Pause thread", key="fleet_pause"):
         mc.pause_agent(selected_agent_id)
@@ -190,7 +358,7 @@ with inspector_tab:
     st.subheader("Execution Trace & Session Inspector")
     st.caption("Trace notes are concise operational summaries, not hidden chain-of-thought. All tool outputs are mock commits.")
     session_options = ["Latest 5-step workflow"] + list(mc.agents)
-    selected_session = st.selectbox("Session", session_options, key="inspector_session")
+    selected_session = st.selectbox("Session", session_options, index=session_options.index(selected_agent_id), key=f"inspector_session::{mc.company_slug}")
     if selected_session == "Latest 5-step workflow":
         trace = latest.trace
         st.markdown(f"**Strategy:** `{latest.strategy}` · **Result:** {'completed' if latest.completed else 'halted'} · **Policy conflict:** `{latest.conflict_type}`")
@@ -272,21 +440,21 @@ with inspector_tab:
 
 with policy_tab:
     st.subheader("Policy Version Control & Deployment Center")
-    st.caption("Rule edits, shadow replay, and canary pushes alter only the in-memory demo fleet.")
+    st.caption(f"Rule edits, shadow replay, and canary pushes are scoped to {company_name} and alter only its in-memory demo fleet.")
     st.markdown(f"**Active cluster head:** `{mc.cluster_policy.version}` · hash `{mc.cluster_policy.policy_hash}`")
     st.dataframe(pd.DataFrame(policy_rows(mc.cluster_policy)), hide_index=True)
 
     with st.expander("Rule Builder & Schema Editor", expanded=True):
-        with st.form("rule_builder"):
+        with st.form(f"rule_builder::{mc.company_slug}"):
             col_a, col_b, col_c = st.columns(3)
-            rule_id = col_a.text_input("Rule ID", value=f"R{len(mc.draft_rules) + 1}", key=f"rule_id_{len(mc.draft_rules)}")
-            target_tool = col_b.text_input("Target tool filter", value="*", help="Use '*' for all tools or a specific tool name.")
-            parameter_kind = col_c.selectbox("Constraint parameter", ["aggregate_budget", "allow_pii_export", "custom"])
-            custom_parameter = st.text_input("Custom parameter (if selected)", value="record_limit")
+            rule_id = col_a.text_input("Rule ID", value=f"R{len(mc.draft_rules) + 1}", key=f"rule_id_{mc.company_slug}_{len(mc.draft_rules)}")
+            target_tool = col_b.text_input("Target tool filter", value="*", help="Use '*' for all tools or a specific tool name.", key=f"target_tool::{mc.company_slug}")
+            parameter_kind = col_c.selectbox("Constraint parameter", ["aggregate_budget", "allow_pii_export", "custom"], key=f"parameter_kind::{mc.company_slug}")
+            custom_parameter = st.text_input("Custom parameter (if selected)", value="record_limit", key=f"custom_parameter::{mc.company_slug}")
             col_d, col_e, col_f = st.columns(3)
-            operator = col_d.selectbox("Operator", ["<=", "==", "!=", ">=", "<", ">", "in", "not_in"])
-            threshold_input = col_e.text_input("Threshold / value", value="350.00", help="Numeric values use decimal arithmetic; booleans accept true/false.")
-            severity_name = col_f.selectbox("Severity", [item.value for item in RuleSeverity], index=2)
+            operator = col_d.selectbox("Operator", ["<=", "==", "!=", ">=", "<", ">", "in", "not_in"], key=f"operator::{mc.company_slug}")
+            threshold_input = col_e.text_input("Threshold / value", value="350.00", help="Numeric values use decimal arithmetic; booleans accept true/false.", key=f"threshold::{mc.company_slug}")
+            severity_name = col_f.selectbox("Severity", [item.value for item in RuleSeverity], index=2, key=f"severity::{mc.company_slug}")
             add_rule = st.form_submit_button("Validate and add / replace rule")
         if add_rule:
             parameter = custom_parameter.strip() if parameter_kind == "custom" else parameter_kind
@@ -310,34 +478,35 @@ with policy_tab:
 
     draft_left, draft_right = st.columns([1, 2])
     with draft_left:
-        draft_version = st.text_input("Draft policy version", value="2.1.0", key="draft_policy_version")
-        draft_domain = st.text_input("Domain", value="company", key="draft_policy_domain")
-        canary_percent = st.slider("Canary rollout target", min_value=10, max_value=100, value=10, step=10)
+        draft_version = st.text_input("Draft policy version", value="2.1.0", key=f"draft_policy_version::{mc.company_slug}")
+        draft_domain = st.text_input("Domain", value="company", key=f"draft_policy_domain::{mc.company_slug}")
+        canary_percent = st.slider("Canary rollout target", min_value=10, max_value=100, value=10, step=10, key=f"canary_percent::{mc.company_slug}")
         draft_policy = None
         try:
             draft_policy = mc.build_policy(draft_version, draft_domain, mc.draft_rules)
             st.success(f"Draft valid · SHA-256 `{draft_policy.policy_hash}`")
         except Exception as exc:
             st.warning(f"Draft needs attention: {exc}")
-        prior_shadow = st.session_state.get("last_shadow_result")
+        shadow_key = f"last_shadow_result::{mc.company_slug}"
+        prior_shadow = st.session_state.get(shadow_key)
         shadow_matches_draft = bool(draft_policy and prior_shadow and prior_shadow.get("policy_hash") == draft_policy.policy_hash and prior_shadow.get("sample_size") == 500)
         if not shadow_matches_draft:
             st.info("Run a 500-session shadow replay for this exact policy hash before deployment; canary buttons remain disabled until it passes.")
         push_col, full_col, advance_col = st.columns(3)
-        if push_col.button("Push canary", disabled=draft_policy is None or not shadow_matches_draft, key="push_canary"):
+        if push_col.button("Push canary", disabled=draft_policy is None or not shadow_matches_draft, key=f"push_canary::{mc.company_slug}"):
             try:
                 rollout = mc.canary_rollout(draft_policy, canary_percent)
                 st.success(f"Scheduled {rollout['scheduled_count']} delivery event(s) for {rollout['version']}; {rollout['pending_count']} pending.")
             except Exception as exc:
                 st.error(f"Canary push failed: {exc}")
-        if full_col.button("Roll out to 100%", disabled=draft_policy is None or not shadow_matches_draft, key="push_full"):
+        if full_col.button("Roll out to 100%", disabled=draft_policy is None or not shadow_matches_draft, key=f"push_full::{mc.company_slug}"):
             try:
                 rollout = mc.canary_rollout(draft_policy, 100)
                 st.success(f"Scheduled {rollout['scheduled_count']} additional node delivery event(s); {rollout['pending_count']} pending.")
             except Exception as exc:
                 st.error(f"Rollout failed: {exc}")
         current_rollout = mc.rollout_status()
-        if advance_col.button("Advance +200 ms", disabled=not current_rollout or current_rollout["pending_count"] == 0, key="advance_propagation"):
+        if advance_col.button("Advance +200 ms", disabled=not current_rollout or current_rollout["pending_count"] == 0, key=f"advance_propagation::{mc.company_slug}"):
             advanced = mc.advance_propagation(200.0)
             st.success(f"Virtual clock: {advanced['virtual_time_ms']:.0f} ms · delivered {len(advanced['delivered'])} update(s).")
         rollout_status = mc.rollout_status()
@@ -352,10 +521,10 @@ with policy_tab:
             st.dataframe(pd.DataFrame(mc.policy_diff(draft_policy)), hide_index=True)
 
     st.markdown("#### Pre-deployment shadow simulator · last 500 demo sessions")
-    if st.button("Replay 500 historical sessions against draft", disabled=draft_policy is None, key="shadow_replay"):
-        st.session_state["last_shadow_result"] = mc.shadow_replay(draft_policy, 500)
+    if st.button("Replay 500 historical sessions against draft", disabled=draft_policy is None, key=f"shadow_replay::{mc.company_slug}"):
+        st.session_state[shadow_key] = mc.shadow_replay(draft_policy, 500)
         st.rerun()
-    shadow = st.session_state.get("last_shadow_result")
+    shadow = st.session_state.get(shadow_key)
     if shadow:
         if draft_policy and shadow.get("policy_hash") == draft_policy.policy_hash:
             shadow_cols = st.columns(4)
@@ -377,12 +546,18 @@ with intervention_tab:
     st.caption("These decisions mutate only synthetic request records in this browser session; no payment, email, or API action is sent.")
     requests = mc.hitl_queue()
     pending = [request for request in requests if request["status"] == "PENDING"]
-    st.dataframe(pd.DataFrame([{key: str(value) if isinstance(value, Decimal) else value for key, value in request.items() if key not in {"decision_note"}} for request in requests]), hide_index=True)
+    request_rows = []
+    for request_row in requests:
+        row = {key: str(value) if isinstance(value, Decimal) else value for key, value in request_row.items() if key not in {"decision_note"}}
+        row["agent_name"] = mc.agents.get(request_row["agent_id"]).agent_name if request_row["agent_id"] in mc.agents else "Unknown agent"
+        request_rows.append(row)
+    st.dataframe(pd.DataFrame(request_rows), hide_index=True)
     if pending:
-        request_id = st.selectbox("Escalation inbox", [item["request_id"] for item in pending], format_func=lambda item: f"{item} · {next(row['agent_id'] for row in pending if row['request_id'] == item)}")
+        request_id = st.selectbox("Escalation inbox", [item["request_id"] for item in pending], format_func=lambda item: f"{item} · {mc.agents[pending_row['agent_id']].agent_name}" if (pending_row := next((row for row in pending if row["request_id"] == item), None)) and pending_row["agent_id"] in mc.agents else item)
         request = next(item for item in pending if item["request_id"] == request_id)
+        agent_label = mc.agents[request["agent_id"]].agent_name if request["agent_id"] in mc.agents else request["agent_id"]
         st.error(
-            f"{request['agent_id']} spent {money(request['spent'])} under {request['session_version']} (limit {money(request['old_cap'])}). "
+            f"{agent_label} (`{request['agent_id']}`) spent {money(request['spent'])} under {request['session_version']} (limit {money(request['old_cap'])}). "
             f"New {request['cluster_version']} limit is {money(request['new_cap'])}. Proposed {request['tool']} action: {money(request['proposed_cost'])} ({request['purpose']})."
         )
         st.caption(f"Action classification: {request['action_type']}")
@@ -466,3 +641,76 @@ with observability_tab:
 
     with st.expander("Raw latest workflow result"):
         st.json(json_safe(latest.to_dict()), expanded=False)
+
+
+with company_setup_tab:
+    st.subheader("Company & Agent Setup")
+    st.caption("Create demo organizations and named agents for this browser session. New agents receive a passport stamped with their company's current policy; no real system is contacted.")
+
+    company_rows = []
+    for name, control in st.session_state["company_fleets"].items():
+        company_overview = control.overview()
+        company_rows.append({
+            "company": name,
+            "industry": control.industry,
+            "agents": company_overview["total_agents"],
+            "online": company_overview["online_agents"],
+            "policy_head": company_overview["cluster_policy_version"],
+            "nodes": control.node_count,
+        })
+    st.markdown("#### Companies in this session")
+    st.dataframe(pd.DataFrame(company_rows), hide_index=True)
+
+    create_col, add_agent_col = st.columns(2)
+    with create_col:
+        st.markdown("#### Add a company")
+        with st.form("create_company_form"):
+            new_company_name = st.text_input("Company name", placeholder="Example: Contoso Logistics")
+            new_company_industry = st.selectbox("Industry", ["Financial Services", "E-commerce", "Healthcare", "Technology", "Other"])
+            new_company_description = st.text_area("Company description", placeholder="What teams and agent fleet should this demo represent?")
+            submit_company = st.form_submit_button("Create company")
+        if submit_company:
+            clean_name = new_company_name.strip()
+            existing_names = {name.casefold() for name in st.session_state["company_fleets"]}
+            if not clean_name:
+                st.error("Enter a company name.")
+            elif clean_name.casefold() in existing_names:
+                st.error("A company with that name already exists in this session.")
+            else:
+                seed = 20261108 + 101 * len(st.session_state["company_fleets"])
+                st.session_state["company_fleets"][clean_name] = new_company_control(
+                    clean_name,
+                    new_company_industry,
+                    new_company_description.strip() or f"{new_company_industry} demo company and autonomous agent fleet.",
+                    seed,
+                )
+                st.session_state["company_to_select_next"] = clean_name
+                st.session_state["flash_notice"] = f"Created {clean_name} with a starter demo fleet."
+                st.rerun()
+
+    with add_agent_col:
+        st.markdown(f"#### Add an agent to {company_name}")
+        with st.form(f"create_agent_form::{mc.company_slug}"):
+            new_agent_name = st.text_input("Agent display name", placeholder="Example: Invoice Review Agent")
+            domain_choices = ["Procurement", "Customer Support", "Internal BI", "Engineering", "Commerce Operations", "Clinical Operations", "Patient Support", "Clinical Data", "Custom"]
+            new_agent_domain_choice = st.selectbox("Agent domain", domain_choices, key=f"new_agent_domain::{mc.company_slug}")
+            custom_domain = st.text_input("Custom domain", placeholder="Only used when domain is Custom", key=f"custom_domain::{mc.company_slug}")
+            new_agent_role = st.text_input("Agent role", placeholder="Example: invoice_reviewer")
+            node_choice = st.selectbox("Execution node", ["Auto-assign"] + sorted(mc.nodes), key=f"new_agent_node::{mc.company_slug}")
+            new_agent_status = st.selectbox("Initial status", ["IDLE", "ONLINE"], key=f"new_agent_status::{mc.company_slug}")
+            submit_agent = st.form_submit_button("Add agent")
+        if submit_agent:
+            domain = custom_domain.strip() if new_agent_domain_choice == "Custom" else new_agent_domain_choice
+            try:
+                created_agent_id = mc.add_agent(
+                    new_agent_name,
+                    domain,
+                    new_agent_role,
+                    node_id=None if node_choice == "Auto-assign" else node_choice,
+                    status=new_agent_status,
+                )
+                st.session_state["agent_to_select_next"] = (company_name, created_agent_id)
+                st.session_state["flash_notice"] = f"Added {mc.agents[created_agent_id].agent_name} to {company_name}."
+                st.rerun()
+            except ValueError as exc:
+                st.error(str(exc))

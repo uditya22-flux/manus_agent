@@ -8,6 +8,7 @@ from __future__ import annotations
 import math
 import heapq
 import random
+import re
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_DOWN
 from typing import Any, Dict, List
@@ -35,11 +36,23 @@ class AgentRecord:
 class MissionControl:
     """Deterministic demo fleet with explicit in-memory policy and intervention actions."""
 
-    def __init__(self, seed: int = 20261108, node_count: int = 10):
+    def __init__(
+        self,
+        seed: int = 20261108,
+        node_count: int = 10,
+        company_name: str = "Aster Finance",
+        industry: str = "Financial Services",
+        description: str = "Demo financial-services company and its autonomous agent fleet.",
+        agent_overrides: Dict[str, Dict[str, str]] | None = None,
+    ):
         if node_count < 2:
             raise ValueError("node_count must be at least 2 to represent stale and current nodes")
         self.seed = seed
         self.node_count = node_count
+        self.company_name = company_name.strip() or "Untitled Company"
+        self.company_slug = re.sub(r"[^a-z0-9]+", "_", self.company_name.lower()).strip("_")
+        self.industry = industry
+        self.company_description = description.strip()
         self._rng = random.Random(seed)
         self.nodes = {f"node_{index:02d}": {"version": "2.0.0", "hash": "", "pending": []} for index in range(1, node_count + 1)}
         self.initial_policy = Policy(
@@ -64,6 +77,7 @@ class MissionControl:
 
         stale_node = sorted(key for key, value in self.nodes.items() if value["version"] != self.cluster_policy.version)[0]
         current_nodes = sorted(key for key in self.nodes if key != stale_node)
+        agent_overrides = agent_overrides or {}
         records = [
             ("FinOps-Worker-42", "FinOps Worker 42", "Procurement", "finance_operator", current_nodes[0], "1.0.0", "step_4", "CONFLICT_DETECTED", TaintStatus.TAINTED, "Untrusted payment webhook payload"),
             ("Support-Agent-07", "Customer Support 07", "Customer Support", "support_agent", current_nodes[0], "2.0.0", "step_2", "ONLINE", TaintStatus.CLEAN, ""),
@@ -74,13 +88,17 @@ class MissionControl:
         ]
         self.agents: Dict[str, AgentRecord] = {}
         for agent_id, name, domain, role, node_id, initial_version, step, status, taint, reason in records:
+            overrides = agent_overrides.get(agent_id, {})
+            name = overrides.get("agent_name", name)
+            domain = overrides.get("domain", domain)
+            role = overrides.get("user_role", role)
             initial_policy = self.initial_policy if initial_version == self.initial_policy.version else self.cluster_policy
             self.agents[agent_id] = AgentRecord(
                 agent_id=agent_id,
                 agent_name=name,
                 domain=domain,
                 user_role=role,
-                session_id=f"sess_{agent_id.lower().replace('-', '_')}",
+                session_id=f"sess_{self.company_slug}_{agent_id.lower().replace('-', '_')}",
                 node_id=node_id,
                 initial_policy_version=initial_version,
                 initial_policy_hash=initial_policy.policy_hash,
@@ -100,11 +118,11 @@ class MissionControl:
             {"time_ago_hours": 2.7, "event": "FinOps-Worker-42 escalated", "actor": "runtime-interceptor", "result": "Pending operator"},
         ]
         self.incidents = [
-            {"time_ago_hours": 0.6, "kind": "MID-FLIGHT-CONFLICT", "session_id": "sess_finops_worker_42", "severity": "CRITICAL"},
-            {"time_ago_hours": 2.7, "kind": "HITL-ESCALATION", "session_id": "sess_customer_success_21", "severity": "MEDIUM"},
-            {"time_ago_hours": 8.2, "kind": "STALE-NODE", "session_id": "sess_data_pipeline_12", "severity": "HIGH"},
-            {"time_ago_hours": 11.1, "kind": "TAINTED-CONTEXT", "session_id": "sess_finops_worker_42", "severity": "HIGH"},
-            {"time_ago_hours": 18.0, "kind": "HITL-ESCALATION", "session_id": "sess_customer_success_21", "severity": "LOW"},
+            {"time_ago_hours": 0.6, "kind": "MID-FLIGHT-CONFLICT", "session_id": f"sess_{self.company_slug}_finops_worker_42", "severity": "CRITICAL"},
+            {"time_ago_hours": 2.7, "kind": "HITL-ESCALATION", "session_id": f"sess_{self.company_slug}_customer_success_21", "severity": "MEDIUM"},
+            {"time_ago_hours": 8.2, "kind": "STALE-NODE", "session_id": f"sess_{self.company_slug}_data_pipeline_12", "severity": "HIGH"},
+            {"time_ago_hours": 11.1, "kind": "TAINTED-CONTEXT", "session_id": f"sess_{self.company_slug}_finops_worker_42", "severity": "HIGH"},
+            {"time_ago_hours": 18.0, "kind": "HITL-ESCALATION", "session_id": f"sess_{self.company_slug}_customer_success_21", "severity": "LOW"},
         ]
         self.prompt_mutations = [
             {"time_ago_hours": 23.4, "source": "Governance Board (demo)", "request": "Reduce the procurement aggregate cap to $400", "compiled_rule": "aggregate_budget <= 400.00", "status": "VALIDATED", "note": "Illustrative compiler audit record; no LLM call is made."},
@@ -170,6 +188,7 @@ class MissionControl:
             else:
                 consistency = "IN-SYNC"
             rows.append({
+                "company": self.company_name,
                 "agent_name": agent.agent_name,
                 "agent_id": agent.agent_id,
                 "domain": agent.domain,
@@ -190,6 +209,7 @@ class MissionControl:
         agent = self.agents[agent_id]
         node = self.nodes[agent.node_id]
         return {
+            "company": self.company_name,
             "session_id": agent.session_id,
             "agent_id": agent.agent_id,
             "user_role": agent.user_role,
@@ -201,7 +221,48 @@ class MissionControl:
             "taint_reason": agent.taint_reason,
             "node_id": agent.node_id,
             "node_policy_version": node["version"],
+            "node_policy_hash": node["hash"],
             "cluster_policy_version": self.cluster_policy.version,
+            "cluster_policy_hash": self.cluster_policy.policy_hash,
+            "consistency_status": next(row["consistency"] for row in self.fleet_records() if row["agent_id"] == agent_id),
+        }
+
+    def agent_profile(self, agent_id: str) -> Dict[str, Any]:
+        """Return a detailed company-scoped identity, lifecycle, and policy profile."""
+        agent = self._agent(agent_id)
+        passport = self.passport_for(agent_id)
+        return {
+            "company": {
+                "name": self.company_name,
+                "industry": self.industry,
+                "description": self.company_description,
+            },
+            "identity": {
+                "agent_name": agent.agent_name,
+                "agent_id": agent.agent_id,
+                "session_id": agent.session_id,
+                "domain": agent.domain,
+                "user_role": agent.user_role,
+                "node_id": agent.node_id,
+            },
+            "lifecycle": {
+                "status": agent.status,
+                "active_step": agent.active_step,
+                "taint_status": agent.taint_status.value,
+                "taint_reason": agent.taint_reason or "None",
+            },
+            "policy_provenance": {
+                "initial_stamped_version": agent.initial_policy_version,
+                "initial_stamped_hash": agent.initial_policy_hash,
+                "current_node_version": passport["node_policy_version"],
+                "current_node_hash": passport["node_policy_hash"],
+                "cluster_head_version": self.cluster_policy.version,
+                "cluster_head_hash": self.cluster_policy.policy_hash,
+                "consistency_status": passport["consistency_status"],
+                "pending_update": ", ".join(self.nodes[agent.node_id]["pending"]) or "None",
+            },
+            "passport": passport,
+            "recent_incidents": [item for item in self.incidents if item["session_id"] == agent.session_id],
         }
 
     def session_trace(self, agent_id: str) -> List[Dict[str, Any]]:
@@ -216,6 +277,13 @@ class MissionControl:
                 ("reserve_hotel", ActionType.IRREVERSIBLE, {"vendor": "Hyatt", "cost": Decimal("150.00")}),
                 ("dispatch_calendar_invites", ActionType.IRREVERSIBLE, {"attendees": ["team@domain.com"]}),
             ],
+            "Commerce Operations": [
+                ("search_product_catalog", ActionType.REVERSIBLE, {"category": "electronics"}),
+                ("check_inventory", ActionType.REVERSIBLE, {"sku": "SKU-42"}),
+                ("calculate_refund", ActionType.REVERSIBLE, {"order_id": "ORD-1042"}),
+                ("stripe_payment_gateway", ActionType.IRREVERSIBLE, {"vendor": "CommercePay", "cost": Decimal("125.00")}),
+                ("notify_merchant", ActionType.IRREVERSIBLE, {"order_id": "ORD-1042"}),
+            ],
             "Customer Support": [
                 ("lookup_customer_ticket", ActionType.REVERSIBLE, {"ticket_id": "T-1042"}),
                 ("check_refund_eligibility", ActionType.REVERSIBLE, {"order_id": "O-883"}),
@@ -229,6 +297,27 @@ class MissionControl:
                 ("aws_s3_export", ActionType.IRREVERSIBLE, {"destination": "reports/quarter.csv"}),
                 ("publish_dashboard", ActionType.IRREVERSIBLE, {"dashboard": "finance-health"}),
                 ("notify_analysts", ActionType.IRREVERSIBLE, {"channel": "bi-ops"}),
+            ],
+            "Clinical Operations": [
+                ("lookup_claim", ActionType.REVERSIBLE, {"claim_id": "CLM-1042"}),
+                ("verify_coverage", ActionType.REVERSIBLE, {"plan_id": "PLAN-42"}),
+                ("validate_authorization", ActionType.REVERSIBLE, {"member_id": "MEM-42"}),
+                ("approve_claim_payment", ActionType.IRREVERSIBLE, {"cost": Decimal("225.00"), "claim_id": "CLM-1042"}),
+                ("send_explanation_of_benefits", ActionType.IRREVERSIBLE, {"claim_id": "CLM-1042"}),
+            ],
+            "Patient Support": [
+                ("lookup_patient_case", ActionType.REVERSIBLE, {"case_id": "PAT-1042"}),
+                ("verify_patient_identity", ActionType.REVERSIBLE, {"verified": True}),
+                ("check_care_eligibility", ActionType.REVERSIBLE, {"service": "follow-up"}),
+                ("send_patient_message", ActionType.IRREVERSIBLE, {"template": "care_update"}),
+                ("close_patient_case", ActionType.IRREVERSIBLE, {"case_id": "PAT-1042"}),
+            ],
+            "Clinical Data": [
+                ("query_clinical_warehouse", ActionType.REVERSIBLE, {"dataset": "quality_metrics"}),
+                ("aggregate_clinical_outcomes", ActionType.REVERSIBLE, {"period": "quarter"}),
+                ("aws_s3_export", ActionType.IRREVERSIBLE, {"destination": "reports/quality.csv", "allow_pii_export": True}),
+                ("publish_quality_dashboard", ActionType.IRREVERSIBLE, {"dashboard": "care-quality"}),
+                ("notify_clinical_team", ActionType.IRREVERSIBLE, {"channel": "clinical-ops"}),
             ],
             "Engineering": [
                 ("fetch_repository_diff", ActionType.REVERSIBLE, {"repository": "service-api"}),
@@ -318,6 +407,9 @@ class MissionControl:
         tainted = sum(agent.taint_status == TaintStatus.TAINTED for agent in self.agents.values())
         recent_incidents = [item for item in self.incidents if 0 <= item["time_ago_hours"] <= 24]
         return {
+            "company_name": self.company_name,
+            "industry": self.industry,
+            "company_description": self.company_description,
             "online_agents": online,
             "active_agents": active,
             "idle_agents": idle,
@@ -356,6 +448,48 @@ class MissionControl:
         agent.status = "TERMINATED"
         self._audit("Terminate thread", agent_id, "Terminated")
         return self.passport_for(agent_id)
+
+    def add_agent(
+        self,
+        agent_name: str,
+        domain: str,
+        user_role: str,
+        node_id: str | None = None,
+        status: str = "IDLE",
+    ) -> str:
+        """Add a simulated agent to this company and stamp a fresh current-policy passport."""
+        agent_name = agent_name.strip()
+        domain = domain.strip()
+        user_role = user_role.strip()
+        if not agent_name or not domain or not user_role:
+            raise ValueError("Agent name, domain, and user role are required")
+        if status not in {"ONLINE", "IDLE"}:
+            raise ValueError("New agents may start only ONLINE or IDLE")
+        base_id = re.sub(r"[^A-Za-z0-9]+", "-", agent_name).strip("-")
+        agent_id = base_id
+        suffix = 2
+        while agent_id in self.agents:
+            agent_id = f"{base_id}-{suffix}"
+            suffix += 1
+        if node_id is None:
+            node_id = sorted(self.nodes)[len(self.agents) % self.node_count]
+        if node_id not in self.nodes:
+            raise ValueError(f"Unknown node {node_id!r}")
+        self.agents[agent_id] = AgentRecord(
+            agent_id=agent_id,
+            agent_name=agent_name,
+            domain=domain,
+            user_role=user_role,
+            session_id=f"sess_{self.company_slug}_{agent_id.lower().replace('-', '_')}",
+            node_id=node_id,
+            initial_policy_version=self.cluster_policy.version,
+            initial_policy_hash=self.cluster_policy.policy_hash,
+            active_step="step_1",
+            status=status,
+            taint_status=TaintStatus.CLEAN,
+        )
+        self._audit("Demo agent added", self.company_name, f"{agent_name} ({agent_id}) assigned to {node_id}")
+        return agent_id
 
     def _agent(self, agent_id: str) -> AgentRecord:
         try:
